@@ -208,14 +208,17 @@ class _SchedulePageState extends State<SchedulePage> {
       {required bool isTopHandle}) {
     setState(() {
       if (isTopHandle) {
-        final newTop = block.top + details.delta.dy;
-        final newHeight = block.height - details.delta.dy;
-        if (newTop >= 0 && newHeight >= snapUnit) {
+        // 固定底部，計算頂部移動
+        final double currentBottom = block._savedTop + block._savedHeight;
+        double newTop = block.top + details.delta.dy;
+        
+        if (newTop >= 0 && (currentBottom - newTop) >= snapUnit) {
           block.top = newTop;
-          block.height = newHeight;
+          block.height = currentBottom - newTop;
         }
       } else {
-        final newHeight = block.height + details.delta.dy;
+        // 固定頂部，計算底部移動
+        double newHeight = block.height + details.delta.dy;
         if (block.top + newHeight <= canvasHeight && newHeight >= snapUnit) {
           block.height = newHeight;
         }
@@ -331,6 +334,7 @@ class _SchedulePageState extends State<SchedulePage> {
         child: LongPressDraggable<TaskBlock>(
           data: block,
           delay: const Duration(milliseconds: 150),
+          // 選中時禁用拖移，確保手勢全給拉桿
           maxSimultaneousDrags: block.isSelected ? 0 : 1,
           feedback: Material(
             color: Colors.transparent,
@@ -385,16 +389,16 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
         ),
 
-        // ── 拉桿：往外移 -26px ──────────────────────────
+        // --- 拉桿位置調整：UI不變，Hit Area置中 ---
         if (isSelected && !_isAddingMode) ...[
           Positioned(
-            top: -17,
-            left: 10,
+            top: -17, // -17 (原位置) - 18 (補償量) = -35
+            left: -2,
             child: _buildResizeHandle(block, isTopHandle: true),
           ),
           Positioned(
             bottom: -17,
-            right: 10,
+            right: -2,
             child: _buildResizeHandle(block, isTopHandle: false),
           ),
         ],
@@ -426,10 +430,10 @@ class _SchedulePageState extends State<SchedulePage> {
       onPanUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: isTopHandle),
       onPanEnd: (_) => _onResizeEnd(block),
       child: Container(
-        width: 60,
-        height: 44,
-        color: Colors.transparent,
-        child: Center(
+        width: 80,  // 透明感應區寬度
+        height: 44, // 透明感應區高度 (44dp 是標準觸控區)
+        color: Colors.transparent, 
+        child: Center( // 讓 8px 的 UI 待在 44px 的正中央
           child: Container(
             width: 40,
             height: 8,
@@ -486,8 +490,8 @@ class BlockPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     const double cornerRadius = 12;
     const double notchWidth = 60;
-    const double notchHeight = 10;
-    const double notchSlant = 8; // 保留參數但不再使用
+    double notchHeight = 10;
+    const double notchSlant = 8;
 
     final fillPaint = Paint()
       ..color = fillColor
@@ -519,53 +523,41 @@ Path _buildPath(
 
   const double topL = 12.0;
   final double topR = topL + notchW;
-  
-  // Symmetry: Bottom notch starts from the right edge
-  final double botR_Start = w - 12.0; 
+ 
+  final double botR_Start = w - 12.0;
   final double botL_End = botR_Start - notchW;
-  
-  const double nr =6.0; // Consistent corner radius
+ 
+  const double nr = 6.0;
 
   final path = Path();
 
-  // --- TOP EDGE (Left-aligned Notch) ---
   if (isSelected) {
     path.moveTo(0, notchH + nr);
-    path.quadraticBezierTo(0, notchH, nr, notchH); // Curve In
-    path.lineTo(topR - nr, notchH);                // Straight Line
-    path.quadraticBezierTo(topR, notchH, topR, notchH - nr); // Curve Out
+    path.quadraticBezierTo(0, notchH, nr, notchH);
+    path.lineTo(topR - nr, notchH);                
+    path.quadraticBezierTo(topR, notchH, topR, notchH - nr);
     path.lineTo(topR, nr);
     path.quadraticBezierTo(topR, 0, topR + nr, 0);
   } else {
     path.moveTo(r, 0);
   }
 
-  // --- RIGHT SIDE ---
   path.lineTo(w - r, 0);
   path.quadraticBezierTo(w, 0, w, r);
-  
-  // If selected, stop the right wall early to start the bottom notch
+ 
   if (isSelected) {
-    path.lineTo(w, h - notchH - nr); 
+    path.lineTo(w, h - notchH - nr);
   } else {
     path.lineTo(w, h - r);
     path.quadraticBezierTo(w, h, w - r, h);
   }
 
-  // --- BOTTOM EDGE (Right-aligned Notch, Symmetric to Top-Left) ---
   if (isSelected) {
-    // 1. Curve IN from the right edge to the notch depth
     path.quadraticBezierTo(w, h - notchH, w - nr, h - notchH);
-    
-    // 2. Straight horizontal line (Symmetric to top)
     path.lineTo(botL_End + nr, h - notchH);
-    
-    // 3. Curve OUT and drop down to the true bottom
     path.quadraticBezierTo(botL_End, h - notchH, botL_End, h - notchH + nr);
     path.lineTo(botL_End, h - nr);
     path.quadraticBezierTo(botL_End, h, botL_End - nr, h);
-    
-    // 4. Finish the bottom edge to the left
     path.lineTo(r, h);
     path.quadraticBezierTo(0, h, 0, h - r);
   } else {
@@ -573,7 +565,6 @@ Path _buildPath(
     path.quadraticBezierTo(0, h, 0, h - r);
   }
 
-  // --- LEFT SIDE ---
   path.lineTo(0, isSelected ? notchH + nr : r);
 
   if (!isSelected) {
