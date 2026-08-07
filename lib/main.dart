@@ -77,6 +77,7 @@ class _SchedulePageState extends State<SchedulePage> {
   final List<TaskBlock> _blocks = [];
   TaskBlock? _selectedBlock;
   bool _isAddingMode = false;
+  bool _isResizing = false;
 
   @override
   void initState() {
@@ -201,6 +202,7 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   void _onResizeStart(TaskBlock block) {
+    setState(() => _isResizing = true);
     block.saveSnapshot();
   }
 
@@ -237,6 +239,7 @@ class _SchedulePageState extends State<SchedulePage> {
         block.top = snappedTop;
         block.height = snappedHeight;
       }
+      _isResizing = false;
     });
     _saveData();
   }
@@ -266,6 +269,9 @@ class _SchedulePageState extends State<SchedulePage> {
                 : Colors.white,
             child: SingleChildScrollView(
               controller: _scrollController,
+              physics: _isResizing 
+                  ? const NeverScrollableScrollPhysics() 
+                  : const AlwaysScrollableScrollPhysics(),
               child: SizedBox(
                 height: canvasHeight,
                 child: Stack(
@@ -329,34 +335,62 @@ class _SchedulePageState extends State<SchedulePage> {
     return Positioned(
       top: block.top,
       left: 80,
-      child: IgnorePointer(
-        ignoring: _isAddingMode,
-        child: LongPressDraggable<TaskBlock>(
-          data: block,
-          delay: const Duration(milliseconds: 150),
-          // 選中時禁用拖移，確保手勢全給拉桿
-          maxSimultaneousDrags: block.isSelected ? 0 : 1,
-          feedback: Material(
-            color: Colors.transparent,
-            child: Opacity(
-              opacity: 0.7,
-              child: _buildBlockBody(block, isDragging: true),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 1. 主体部分：负责长按拖移
+          IgnorePointer(
+            ignoring: _isAddingMode,
+            child: LongPressDraggable<TaskBlock>(
+              data: block,
+              delay: const Duration(milliseconds: 150),
+              maxSimultaneousDrags: block.isSelected ? 0 : 1,
+              feedback: Material(
+                color: Colors.transparent,
+                child: Opacity(
+                  opacity: 0.7,
+                  child: _buildBlockBody(block, isDragging: true, showHandles: false),
+                ),
+              ),
+              childWhenDragging: const SizedBox.shrink(),
+              onDragStarted: () => _onDragStarted(block),
+              onDragUpdate: (details) => _onDragUpdate(block, details),
+              onDragEnd: (_) => _onDragEnd(block),
+              child: GestureDetector(
+                onTap: () => setState(() => _selectBlock(block)),
+                child: _buildBlockBody(block, showHandles: false),
+              ),
             ),
           ),
-          childWhenDragging: const SizedBox.shrink(),
-          onDragStarted: () => _onDragStarted(block),
-          onDragUpdate: (details) => _onDragUpdate(block, details),
-          onDragEnd: (_) => _onDragEnd(block),
-          child: GestureDetector(
-            onTap: () => setState(() => _selectBlock(block)),
-            child: _buildBlockBody(block),
-          ),
-        ),
+          // 2. 覆盖层：只有在选中且非添加模式时才显示拉伸柄
+          if (block.isSelected && !_isAddingMode)
+            Positioned.fill(
+              child: _buildHandlesOverlay(block),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildBlockBody(TaskBlock block, {bool isDragging = false}) {
+  Widget _buildHandlesOverlay(TaskBlock block) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          top: -17,
+          left: -2,
+          child: _buildResizeHandle(block, isTopHandle: true),
+        ),
+        Positioned(
+          bottom: -17,
+          right: -2,
+          child: _buildResizeHandle(block, isTopHandle: false),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBlockBody(TaskBlock block, {bool isDragging = false, bool showHandles = true}) {
     final isSelected = block.isSelected && !isDragging;
 
     return Stack(
@@ -390,7 +424,7 @@ class _SchedulePageState extends State<SchedulePage> {
         ),
 
         // --- 拉桿位置調整：UI不變，Hit Area置中 ---
-        if (isSelected && !_isAddingMode) ...[
+        if (showHandles && isSelected && !_isAddingMode) ...[
           Positioned(
             top: -17, // -17 (原位置) - 18 (補償量) = -35
             left: -2,
