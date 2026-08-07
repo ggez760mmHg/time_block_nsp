@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const MyApp());
@@ -61,6 +62,42 @@ class TaskBlock {
   }
 }
 
+/// Professional Custom Gesture Recognizer to beat the Scrollable parent.
+class ResizeDragRecognizer extends VerticalDragGestureRecognizer {
+  final VoidCallback onStart;
+  final Function(DragUpdateDetails) onUpdate;
+  final VoidCallback onEnd;
+
+  ResizeDragRecognizer({
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+  });
+
+  @override
+  void handleEvent(PointerEvent event) {
+    super.handleEvent(event);
+  }
+
+  @override
+  void onStart(int pointer) {
+    super.onStart(pointer);
+    onStart();
+  }
+
+  @override
+  void handleUpdate(DragUpdateDetails details) {
+    super.handleUpdate(details);
+    onUpdate(details);
+  }
+
+  @override
+  void onEnd(int pointer) {
+    super.onEnd(pointer);
+    onEnd();
+  }
+}
+
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
 
@@ -77,7 +114,6 @@ class _SchedulePageState extends State<SchedulePage> {
   final List<TaskBlock> _blocks = [];
   TaskBlock? _selectedBlock;
   bool _isAddingMode = false;
-  bool _isResizing = false;
 
   @override
   void initState() {
@@ -202,7 +238,6 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   void _onResizeStart(TaskBlock block) {
-    setState(() => _isResizing = true);
     block.saveSnapshot();
   }
 
@@ -210,16 +245,13 @@ class _SchedulePageState extends State<SchedulePage> {
       {required bool isTopHandle}) {
     setState(() {
       if (isTopHandle) {
-        // 固定底部，計算頂部移動
         final double currentBottom = block._savedTop + block._savedHeight;
         double newTop = block.top + details.delta.dy;
-        
         if (newTop >= 0 && (currentBottom - newTop) >= snapUnit) {
           block.top = newTop;
           block.height = currentBottom - newTop;
         }
       } else {
-        // 固定頂部，計算底部移動
         double newHeight = block.height + details.delta.dy;
         if (block.top + newHeight <= canvasHeight && newHeight >= snapUnit) {
           block.height = newHeight;
@@ -239,7 +271,6 @@ class _SchedulePageState extends State<SchedulePage> {
         block.top = snappedTop;
         block.height = snappedHeight;
       }
-      _isResizing = false;
     });
     _saveData();
   }
@@ -269,9 +300,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 : Colors.white,
             child: SingleChildScrollView(
               controller: _scrollController,
-              physics: _isResizing 
-                  ? const NeverScrollableScrollPhysics() 
-                  : const AlwaysScrollableScrollPhysics(),
+              physics: const AlwaysScrollableScrollPhysics(),
               child: SizedBox(
                 height: canvasHeight,
                 child: Stack(
@@ -338,7 +367,6 @@ class _SchedulePageState extends State<SchedulePage> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 1. 主体部分：负责长按拖移
           IgnorePointer(
             ignoring: _isAddingMode,
             child: LongPressDraggable<TaskBlock>(
@@ -362,7 +390,6 @@ class _SchedulePageState extends State<SchedulePage> {
               ),
             ),
           ),
-          // 2. 覆盖层：只有在选中且非添加模式时才显示拉伸柄
           if (block.isSelected && !_isAddingMode)
             Positioned.fill(
               child: _buildHandlesOverlay(block),
@@ -379,12 +406,22 @@ class _SchedulePageState extends State<SchedulePage> {
         Positioned(
           top: -17,
           left: -2,
-          child: _buildResizeHandle(block, isTopHandle: true),
+          child: ResizeHandle(
+            isTopHandle: true,
+            onStart: () => _onResizeStart(block),
+            onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
+            onEnd: () => _onResizeEnd(block),
+          ),
         ),
         Positioned(
           bottom: -17,
           right: -2,
-          child: _buildResizeHandle(block, isTopHandle: false),
+          child: ResizeHandle(
+            isTopHandle: false,
+            onStart: () => _onResizeStart(block),
+            onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
+            onEnd: () => _onResizeEnd(block),
+          ),
         ),
       ],
     );
@@ -405,7 +442,6 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
           child: SizedBox(width: 250, height: block.height),
         ),
-
         Positioned(
           top: 6,
           right: 10,
@@ -422,21 +458,28 @@ class _SchedulePageState extends State<SchedulePage> {
             ),
           ),
         ),
-
-        // --- 拉桿位置調整：UI不變，Hit Area置中 ---
         if (showHandles && isSelected && !_isAddingMode) ...[
           Positioned(
-            top: -17, // -17 (原位置) - 18 (補償量) = -35
+            top: -17,
             left: -2,
-            child: _buildResizeHandle(block, isTopHandle: true),
+            child: ResizeHandle(
+              isTopHandle: true,
+              onStart: () => _onResizeStart(block),
+              onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
+              onEnd: () => _onResizeEnd(block),
+            ),
           ),
           Positioned(
             bottom: -17,
             right: -2,
-            child: _buildResizeHandle(block, isTopHandle: false),
+            child: ResizeHandle(
+              isTopHandle: false,
+              onStart: () => _onResizeStart(block),
+              onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
+              onEnd: () => _onResizeEnd(block),
+            ),
           ),
         ],
-
         Positioned.fill(
           child: Center(
             child: isSelected
@@ -454,41 +497,6 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildResizeHandle(TaskBlock block, {required bool isTopHandle}) {
-    return Listener(
-      onPointerDown: (_) {
-        setState(() => _isResizing = true);
-      },
-      onPointerUp: (_) {
-        setState(() => _isResizing = false);
-      },
-      onPointerCancel: (_) {
-        setState(() => _isResizing = false);
-      },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: (_) => _onResizeStart(block),
-        onPanUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: isTopHandle),
-        onPanEnd: (_) => _onResizeEnd(block),
-        child: Container(
-          width: 80,  // 透明感應區寬度
-          height: 44, // 透明感應區高度 (44dp 是標準觸控區)
-          color: Colors.transparent, 
-          child: Center( // 讓 8px 的 UI 待在 44px 的正中央
-            child: Container(
-              width: 40,
-              height: 8,
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -520,6 +528,68 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 }
 
+class ResizeHandle extends StatefulWidget {
+  final bool isTopHandle;
+  final VoidCallback onStart;
+  final Function(DragUpdateDetails) onUpdate;
+  final VoidCallback onEnd;
+
+  const ResizeHandle({
+    super.key,
+    required this.isTopHandle,
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+  });
+
+  @override
+  State<ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<ResizeHandle> {
+  late ResizeDragRecognizer _recognizer;
+
+  @override
+  void initState() {
+    super.initState();
+    _recognizer = ResizeDragRecognizer(
+      onStart: widget.onStart,
+      onUpdate: widget.onUpdate,
+      onEnd: widget.onEnd,
+    );
+  }
+
+  @override
+  void dispose() {
+    _recognizer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RawGestureDetector(
+      gestures: {
+        ResizeDragRecognizer: _recognizer,
+      },
+      child: Container(
+        width: 80,
+        height: 44,
+        color: Colors.transparent,
+        child: Center(
+          child: Container(
+            width: 40,
+            height: 8,
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              borderRadius: BorderRadius.circular(20),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class BlockPainter extends CustomPainter {
   final bool isSelected;
   final Color fillColor;
@@ -534,10 +604,6 @@ class BlockPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const double cornerRadius = 12;
-    const double notchWidth = 60;
-    double notchHeight = 10;
-    const double notchSlant = 8;
-
     final fillPaint = Paint()
       ..color = fillColor
       ..style = PaintingStyle.fill;
@@ -545,84 +611,23 @@ class BlockPainter extends CustomPainter {
     final borderPaint = Paint()
       ..color = borderColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 2.0;
 
-    final path = _buildPath(
-        size, cornerRadius, notchWidth, notchHeight, notchSlant);
+    final RRect rrect = RRect.fromLTRBR(
+      0, 0, size.width, size.height, 
+      radius: const Radius.circular(cornerRadius)
+    );
 
-    canvas.drawPath(path, fillPaint);
-    if (isSelected) canvas.drawPath(path, borderPaint);
+    canvas.drawRRect(rrect, fillPaint);
+    if (isSelected) {
+      canvas.drawRRect(rrect, borderPaint);
+    }
   }
-
-Path _buildPath(
-  Size size,
-  double r,
-  double notchW,
-  double notchH,
-  double slant,
-) {
-  final w = size.width;
-  final h = size.height;
-
-  notchH += 4;
-
-  const double topL = 12.0;
-  final double topR = topL + notchW;
- 
-  final double botR_Start = w - 12.0;
-  final double botL_End = botR_Start - notchW;
- 
-  const double nr = 6.0;
-
-  final path = Path();
-
-  if (isSelected) {
-    path.moveTo(0, notchH + nr);
-    path.quadraticBezierTo(0, notchH, nr, notchH);
-    path.lineTo(topR - nr, notchH);                
-    path.quadraticBezierTo(topR, notchH, topR, notchH - nr);
-    path.lineTo(topR, nr);
-    path.quadraticBezierTo(topR, 0, topR + nr, 0);
-  } else {
-    path.moveTo(r, 0);
-  }
-
-  path.lineTo(w - r, 0);
-  path.quadraticBezierTo(w, 0, w, r);
- 
-  if (isSelected) {
-    path.lineTo(w, h - notchH - nr);
-  } else {
-    path.lineTo(w, h - r);
-    path.quadraticBezierTo(w, h, w - r, h);
-  }
-
-  if (isSelected) {
-    path.quadraticBezierTo(w, h - notchH, w - nr, h - notchH);
-    path.lineTo(botL_End + nr, h - notchH);
-    path.quadraticBezierTo(botL_End, h - notchH, botL_End, h - notchH + nr);
-    path.lineTo(botL_End, h - nr);
-    path.quadraticBezierTo(botL_End, h, botL_End - nr, h);
-    path.lineTo(r, h);
-    path.quadraticBezierTo(0, h, 0, h - r);
-  } else {
-    path.lineTo(r, h);
-    path.quadraticBezierTo(0, h, 0, h - r);
-  }
-
-  path.lineTo(0, isSelected ? notchH + nr : r);
-
-  if (!isSelected) {
-    path.quadraticBezierTo(0, 0, r, 0);
-  }
-
-  path.close();
-  return path;
-}
 
   @override
-  bool shouldRepaint(covariant BlockPainter old) =>
-      old.isSelected != isSelected ||
-      old.fillColor != fillColor ||
-      old.borderColor != borderColor;
+  bool shouldRepaint(covariant BlockPainter oldDelegate) {
+    return oldDelegate.isSelected != isSelected || 
+           oldDelegate.fillColor != fillColor || 
+           oldDelegate.borderColor != borderColor;
+  }
 }
