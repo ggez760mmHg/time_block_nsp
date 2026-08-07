@@ -458,22 +458,33 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   Widget _buildResizeHandle(TaskBlock block, {required bool isTopHandle}) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanStart: (_) => _onResizeStart(block),
-      onPanUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: isTopHandle),
-      onPanEnd: (_) => _onResizeEnd(block),
-      child: Container(
-        width: 80,  // 透明感應區寬度
-        height: 44, // 透明感應區高度 (44dp 是標準觸控區)
-        color: Colors.transparent, 
-        child: Center( // 讓 8px 的 UI 待在 44px 的正中央
-          child: Container(
-            width: 40,
-            height: 8,
-            decoration: BoxDecoration(
-              color: Colors.blue,
-              borderRadius: BorderRadius.circular(20),
+    return Listener(
+      onPointerDown: (_) {
+        setState(() => _isResizing = true);
+      },
+      onPointerUp: (_) {
+        setState(() => _isResizing = false);
+      },
+      onPointerCancel: (_) {
+        setState(() => _isResizing = false);
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) => _onResizeStart(block),
+        onPanUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: isTopHandle),
+        onPanEnd: (_) => _onResizeEnd(block),
+        child: Container(
+          width: 80,  // 透明感應區寬度
+          height: 44, // 透明感應區高度 (44dp 是標準觸控區)
+          color: Colors.transparent, 
+          child: Center( // 讓 8px 的 UI 待在 44px 的正中央
+            child: Container(
+              width: 40,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
           ),
         ),
