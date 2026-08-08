@@ -16,29 +16,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-/// Custom Physics to completely block scrolling when resizing is active.
-class ResizeAwarePhysics extends ScrollPhysics {
-  final bool isResizing;
-
-  const ResizeAwarePhysics({required this.isResizing, ScrollPhysics? parent})
-      : super(parent: parent);
-
-  @override
-  ResizeAwarePhysics applyTo(ScrollPhysics oldPhysics) {
-    return ResizeAwarePhysics(
-      isResizing: isResizing,
-      parent: oldPhysics,
-    );
-  }
-
-  @override
-  bool shouldAcceptUserOffset(ScrollMetrics position) {
-    // If we are resizing, tell the scroll view to ignore all user offsets.
-    if (isResizing) return false;
-    return super.shouldAcceptUserOffset(position);
-  }
-}
-
 class TaskBlock {
   double top;
   double height;
@@ -100,7 +77,6 @@ class _SchedulePageState extends State<SchedulePage> {
   final List<TaskBlock> _blocks = [];
   TaskBlock? _selectedBlock;
   bool _isAddingMode = false;
-  bool _isResizing = false; // State to control the custom physics
 
   @override
   void initState() {
@@ -287,7 +263,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 : Colors.white,
             child: SingleChildScrollView(
               controller: _scrollController,
-              physics: ResizeAwarePhysics(isResizing: _isResizing),
+              physics: const AlwaysScrollableScrollPhysics(),
               child: SizedBox(
                 height: canvasHeight,
                 child: Stack(
@@ -391,28 +367,18 @@ class _SchedulePageState extends State<SchedulePage> {
       clipBehavior: Clip.none,
       children: [
         Positioned(
-          top: -17,
-          left: -2,
-          child: ResizeHandle(
-            isTopHandle: true,
-            onStart: () => _onResizeStart(block),
-            onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
-            onEnd: () => _onResizeEnd(block),
-            onPointerDown: () => setState(() => _isResizing = true),
-            onPointerUp: () => setState(() => _isResizing = false),
-          ),
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 40, // 增加高度，確保命中
+          child: _buildResizeHandle(block, isTopHandle: true),
         ),
         Positioned(
-          bottom: -17,
-          right: -2,
-          child: ResizeHandle(
-            isTopHandle: false,
-            onStart: () => _onResizeStart(block),
-            onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
-            onEnd: () => _onResizeEnd(block),
-            onPointerDown: () => setState(() => _isResizing = true),
-            onPointerUp: () => setState(() => _isResizing = false),
-          ),
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 40, // 增加高度，確保命中
+          child: _buildResizeHandle(block, isTopHandle: false),
         ),
       ],
     );
@@ -451,28 +417,18 @@ class _SchedulePageState extends State<SchedulePage> {
         ),
         if (showHandles && isSelected && !_isAddingMode) ...[
           Positioned(
-            top: -17,
-            left: -2,
-            child: ResizeHandle(
-              isTopHandle: true,
-              onStart: () => _onResizeStart(block),
-              onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
-              onEnd: () => _onResizeEnd(block),
-              onPointerDown: () => setState(() => _isResizing = true),
-              onPointerUp: () => setState(() => _isResizing = false),
-            ),
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 40,
+            child: _buildResizeHandle(block, isTopHandle: true),
           ),
           Positioned(
-            bottom: -17,
-            right: -2,
-            child: ResizeHandle(
-              isTopHandle: false,
-              onStart: () => _onResizeStart(block),
-              onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
-              onEnd: () => _onResizeEnd(block),
-              onPointerDown: () => setState(() => _isResizing = true),
-              onPointerUp: () => setState(() => _isResizing = false),
-            ),
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 40,
+            child: _buildResizeHandle(block, isTopHandle: false),
           ),
         ],
         Positioned.fill(
@@ -521,48 +477,24 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
     );
   }
-}
 
-class ResizeHandle extends StatelessWidget {
-  final bool isTopHandle;
-  final VoidCallback onStart;
-  final Function(DragUpdateDetails) onUpdate;
-  final VoidCallback onEnd;
-  final VoidCallback onPointerDown;
-  final VoidCallback onPointerUp;
-
-  const ResizeHandle({
-    super.key,
-    required this.isTopHandle,
-    required this.onStart,
-    required this.onUpdate,
-    required this.onEnd,
-    required this.onPointerDown,
-    required this.onPointerUp,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) => onPointerDown(),
-      onPointerUp: (_) => onPointerUp(),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onVerticalDragStart: (_) => onStart(),
-        onVerticalDragUpdate: (details) => onUpdate(details),
-        onVerticalDragEnd: (_) => onEnd(),
-        child: Container(
-          width: 100,
-          height: 50,
-          color: Colors.transparent,
-          child: Center(
-            child: Container(
-              width: 40,
-              height: 8,
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(20),
-              ),
+  Widget _buildResizeHandle(TaskBlock block, {required bool isTopHandle}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => _onResizeStart(block),
+      onVerticalDragUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: isTopHandle),
+      onVerticalDragEnd: (_) => _onResizeEnd(block),
+      child: Container(
+        width: double.infinity,
+        height: 40,
+        color: Colors.red.withOpacity(0.5), // DEBUG: 鮮紅色，半透明
+        child: Center(
+          child: Container(
+            width: 40,
+            height: 8,
+            decoration: BoxDecoration(
+              color: Colors.red, // DEBUG: 鮮紅色
+              borderRadius: BorderRadius.circular(20),
             ),
           ),
         ),
