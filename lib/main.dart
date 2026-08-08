@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const MyApp());
@@ -14,6 +13,29 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: SchedulePage(),
     );
+  }
+}
+
+/// Custom Physics to completely block scrolling when resizing is active.
+class ResizeAwarePhysics extends ScrollPhysics {
+  final bool isResizing;
+
+  const ResizeAwarePhysics({required this.isResizing, ScrollPhysics? parent})
+      : super(parent: parent);
+
+  @override
+  ResizeAwarePhysics applyTo(ScrollPhysics oldPhysics) {
+    return ResizeAwarePhysics(
+      isResizing: isResizing,
+      parent: oldPhysics,
+    );
+  }
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) {
+    // If we are resizing, tell the scroll view to ignore all user offsets.
+    if (isResizing) return false;
+    return super.shouldAcceptUserOffset(position);
   }
 }
 
@@ -62,42 +84,6 @@ class TaskBlock {
   }
 }
 
-/// Professional Custom Gesture Recognizer to beat the Scrollable parent.
-class ResizeDragRecognizer extends VerticalDragGestureRecognizer {
-  final VoidCallback onStart;
-  final Function(DragUpdateDetails) onUpdate;
-  final VoidCallback onEnd;
-
-  ResizeDragRecognizer({
-    required this.onStart,
-    required this.onUpdate,
-    required this.onEnd,
-  });
-
-  @override
-  void handleEvent(PointerEvent event) {
-    super.handleEvent(event);
-  }
-
-  @override
-  void onStart(int pointer) {
-    super.onStart(pointer);
-    onStart();
-  }
-
-  @override
-  void handleUpdate(DragUpdateDetails details) {
-    super.handleUpdate(details);
-    onUpdate(details);
-  }
-
-  @override
-  void onEnd(int pointer) {
-    super.onEnd(pointer);
-    onEnd();
-  }
-}
-
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
 
@@ -114,6 +100,7 @@ class _SchedulePageState extends State<SchedulePage> {
   final List<TaskBlock> _blocks = [];
   TaskBlock? _selectedBlock;
   bool _isAddingMode = false;
+  bool _isResizing = false; // State to control the custom physics
 
   @override
   void initState() {
@@ -300,7 +287,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 : Colors.white,
             child: SingleChildScrollView(
               controller: _scrollController,
-              physics: const AlwaysScrollableScrollPhysics(),
+              physics: ResizeAwarePhysics(isResizing: _isResizing),
               child: SizedBox(
                 height: canvasHeight,
                 child: Stack(
@@ -411,6 +398,8 @@ class _SchedulePageState extends State<SchedulePage> {
             onStart: () => _onResizeStart(block),
             onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
             onEnd: () => _onResizeEnd(block),
+            onPointerDown: () => setState(() => _isResizing = true),
+            onPointerUp: () => setState(() => _isResizing = false),
           ),
         ),
         Positioned(
@@ -421,6 +410,8 @@ class _SchedulePageState extends State<SchedulePage> {
             onStart: () => _onResizeStart(block),
             onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
             onEnd: () => _onResizeEnd(block),
+            onPointerDown: () => setState(() => _isResizing = true),
+            onPointerUp: () => setState(() => _isResizing = false),
           ),
         ),
       ],
@@ -467,6 +458,8 @@ class _SchedulePageState extends State<SchedulePage> {
               onStart: () => _onResizeStart(block),
               onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: true),
               onEnd: () => _onResizeEnd(block),
+              onPointerDown: () => setState(() => _isResizing = true),
+              onPointerUp: () => setState(() => _isResizing = false),
             ),
           ),
           Positioned(
@@ -477,6 +470,8 @@ class _SchedulePageState extends State<SchedulePage> {
               onStart: () => _onResizeStart(block),
               onUpdate: (d) => _onResizeUpdate(block, d, isTopHandle: false),
               onEnd: () => _onResizeEnd(block),
+              onPointerDown: () => setState(() => _isResizing = true),
+              onPointerUp: () => setState(() => _isResizing = false),
             ),
           ),
         ],
@@ -528,11 +523,13 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 }
 
-class ResizeHandle extends StatefulWidget {
+class ResizeHandle extends StatelessWidget {
   final bool isTopHandle;
   final VoidCallback onStart;
   final Function(DragUpdateDetails) onUpdate;
   final VoidCallback onEnd;
+  final VoidCallback onPointerDown;
+  final VoidCallback onPointerUp;
 
   const ResizeHandle({
     super.key,
@@ -540,48 +537,32 @@ class ResizeHandle extends StatefulWidget {
     required this.onStart,
     required this.onUpdate,
     required this.onEnd,
+    required this.onPointerDown,
+    required this.onPointerUp,
   });
 
   @override
-  State<ResizeHandle> createState() => _ResizeHandleState();
-}
-
-class _ResizeHandleState extends State<ResizeHandle> {
-  late ResizeDragRecognizer _recognizer;
-
-  @override
-  void initState() {
-    super.initState();
-    _recognizer = ResizeDragRecognizer(
-      onStart: widget.onStart,
-      onUpdate: widget.onUpdate,
-      onEnd: widget.onEnd,
-    );
-  }
-
-  @override
-  void dispose() {
-    _recognizer.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return RawGestureDetector(
-      gestures: {
-        ResizeDragRecognizer: _recognizer,
-      },
-      child: Container(
-        width: 80,
-        height: 44,
-        color: Colors.transparent,
-        child: Center(
-          child: Container(
-            width: 40,
-            height: 8,
-            decoration: BoxDecoration(
-              color: Colors.blue,
-              borderRadius: BorderRadius.circular(20),
+    return Listener(
+      onPointerDown: (_) => onPointerDown(),
+      onPointerUp: (_) => onPointerUp(),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (_) => onStart(),
+        onVerticalDragUpdate: (details) => onUpdate(details),
+        onVerticalDragEnd: (_) => onEnd(),
+        child: Container(
+          width: 100,
+          height: 50,
+          color: Colors.transparent,
+          child: Center(
+            child: Container(
+              width: 40,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
           ),
         ),
